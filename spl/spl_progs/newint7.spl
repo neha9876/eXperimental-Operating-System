@@ -1,0 +1,44 @@
+alias currentPID S0;
+currentPID = (PTBR - 1024)/8;
+
+alias currentPCB S2;
+currentPCB = READY_LIST + 32*currentPID;
+
+alias counter S10;
+
+[currentPCB + 1]=1; 
+
+alias newPID S1;
+newPID = (currentPID + 1)%32;
+while([READY_LIST + newPID*32 + 1] != 1) do
+    newPID = (newPID + 1)%32;
+endwhile;
+
+if(currentPID == newPID) then
+    halt;
+endif;
+
+[currentPCB + 1]=0;
+
+alias newPCB S4;
+newPCB = READY_LIST + 32*newPID;
+BP = [newPCB + 2];
+SP = [newPCB + 3];
+PTBR = [newPCB + 5];
+PTLR = [newPCB + 6];
+R0 = [newPCB + 7];
+R1 = [newPCB + 8];
+R2 = [newPCB + 9];
+R3 = [newPCB + 10];
+R4 = [newPCB + 11];
+R5 = [newPCB + 12];
+R6 = [newPCB + 13];
+R7 = [newPCB + 14];
+
+SP = SP + 1;
+alias newphysicalSP S5;
+newphysicalSP = ([PTBR + 2*(SP/512)]*512) + SP%512;
+[newphysicalSP] = [newPCB + 4];
+[newPCB + 1] = 2;
+
+ireturn;

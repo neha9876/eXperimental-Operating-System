@@ -1,0 +1,92 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2*(SP/512)]*512) + SP%512;
+
+alias filename S1;
+filename = [physicalSP - 3];
+
+alias sysCallNo S2;
+sysCallNo = [physicalSP - 1];
+
+alias fat_index S3;
+alias mem_index S4;
+alias bb S5;
+alias db S6;
+alias page S7;
+alias code_block S8;
+alias counter S9;
+alias sw_index S10;
+alias fileCount S11;
+alias currentPCB S12;
+alias currentPID S13;
+
+currentPID = (PTBR - 1024)/8;
+currentPCB = [READY_LIST + currentPID*32];
+
+fat_index = 0;
+while([FAT + fat_index*8] != filename) do
+    if(fat_index == 64) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+    fat_index = fat_index + 1;
+endwhile;
+
+bb = [FAT + fat_index*8 + 2];
+load(1,bb);
+store(2,511);
+
+mem_index = 24;
+page = 0;
+while(page < (PTLR-1)) do
+    code_block = [PTBR + page*2];
+    db = [SCRATCHPAD + page];
+    if(code_block != -1 && db == -1) then // deallocate
+	[MEM_LIST + code_block] = [MEM_LIST + code_block] - 1;
+	[PTBR + page*2] = -1;
+	[PTBR + page*2 + 1] = "00";
+    endif;
+    if(code_block == -1 && db != -1) then // allocate
+	mem_index = 25;
+	while([MEM_LIST + mem_index] != 0) do
+	    if(mem_index == 64) then
+		load(2,511);
+		[physicalSP - 2] = 0;
+		ireturn;
+	    endif;
+	    mem_index = mem_index + 1;
+	endwhile;
+	[MEM_LIST + mem_index] = 1;
+	code_block = mem_index;
+	[PTBR + page*2] = code_block;
+	[PTBR + page*2 + 1] = "01";
+    endif;
+    if(db != -1) then
+	load(code_block, db);
+    endif;
+
+    page = page + 1;
+endwhile;
+
+counter = 0;
+while(counter < 8) do
+    sw_index = [currentPCB + 15 + counter*2];
+    if(sw_index != -1) then
+	fileCount = [FILE_TABLE + sw_index*2 + 1];
+	fileCount = fileCount - 1;
+	[FILE_TABLE + sw_index*2 + 1] = fileCount;
+	if (fileCount == 0) then
+	    [FILE_TABLE + sw_index*2] = -1;
+	endif;
+
+	[currentPCB + 15 + counter*2] = -1;
+	[currentPCB + 15 + counter*2 + 1] = -1;
+    endif;
+    
+    counter = counter + 1;
+endwhile;
+
+SP=3*512;
+physicalSP = [PTBR + 6]*512;
+[physicalSP] = 0;
+
+ireturn;

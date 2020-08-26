@@ -1,0 +1,106 @@
+// Write System Call
+//Description: Used to write a single word to a file opened by the process
+//System Call No: 5
+//Interrupt No: 4
+//Arguments: 1. fileDescriptor, 2. wordToWrite
+//Return Value: 0 (Success) or -1 (Failure) 
+
+alias physicalSP S0;
+physicalSP = ([PTBR + 2*(SP/512)]*512) + SP%512;
+
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];
+
+alias wordToWrite S2;
+wordToWrite = [physicalSP - 3];
+
+alias fileDesc S3;
+fileDesc = [physicalSP - 4];
+
+//The wordToWrite given as argument is to be written to the file at the LSEEK position obtained from the per-process open file table
+
+if(sysCallNo == 5) then
+    alias index S4;
+    alias LSEEK S5;
+    alias bb S6;
+    alias bb_index S7;
+    alias db_add S8;
+    alias db S9;
+    
+
+    if(fileDesc < 0 || fileDesc > 7) then
+	[physicalSP - 2] = -1; //Return from the system call with -1, indicating failure if the fileDescriptor specified as argument is invalid. 
+	ireturn;
+    endif;
+    
+
+    index = [READY_LIST + 15 + fileDesc*2];//Index into the per-process open file table in the PCB of the process with the fileDescriptor. 
+    if(index == -1) then  //If the entry is invalid, which is indicated by a -1 in the first field of the entry 
+	[physicalSP - 2] = -1;//return from the system call with -1, indicating failure.
+	ireturn;
+    endif;
+
+//If a valid entry exists, store the Pointer to System Wide Open File Table Entry field and LSEEK position field in registers
+    LSEEK = [READY_LIST + 15 + fileDesc*2 + 1];
+    
+    
+    //Using the Pointer to System Wide Open File Table Entry, index to the System Wide Open File Table to get the FAT Index field
+    index = [FILE_TABLE + index*2];
+
+
+    //Using the FAT Index, fetch the Basic Block from the FAT and load it to the scratchpad. 
+    //This is done to find the block to which the word is to be written to. The basic block contains block numbers of all data blocks of the file
+    bb = [FAT + index*8 + 2];
+    load(1,bb);
+    
+    
+    
+    // LSEEK position is the word number in the file at which reading or writing takes place.
+    //The LSEEK position divided by 512 gives the index of the basic block entry.
+    bb_index = LSEEK/512;
+    db = [SCRATCHPAD + bb_index];
+    if(db == -1) then//If this entry is invalid indicated by -1, then allocate a new block
+	db=24;//user block starts from 24
+    
+    //Find a free block in the disk. To do this traverse through the memory copy of the Disk Free List till the entry for block 447 
+    //Blocks 448 onwards is Swap, which is reserved for virtual memory management
+	while([DISK_LIST + db] == 1 && db <= 447) do
+	     db = db + 1;
+	endwhile;
+	if(db > 447) then
+	    [physicalSP - 2] = -1;//If no free block is available. Return from the system call, with return value -1 indicating failure 
+	    ireturn;
+	endif;
+
+	[SCRATCHPAD + bb_index] = db;
+	[DISK_LIST + db] = 1;//Otherwise, set 1 in the entry for the free block in the Disk Free List.
+    
+    
+    //Increment the file size in the FAT entry by 512. This indicates that a new data block is added to the file. One data block occupies 512 words. 
+	[FAT + index*8 + 1] = [FAT + index*8 + 1] + 512;
+    
+    
+    //Commit the FAT and Disk Free List from the memory to the disk. 
+	store(1,bb);
+	store(5,19);
+	store(6,20);
+    endif;
+    
+    load(1,db);
+    
+    //LSEEK modulo 512 will give the offest into the block at which the word is to be written to.
+    [SCRATCHPAD + LSEEK%512] = wordToWrite;
+    
+    // Increment LSEEK Position by 1 in the Per-Process Open File Table. 
+    //This is because one new word has been written and LSEEK position must be pointing to the next word. 
+    LSEEK = LSEEK + 1;
+    [READY_LIST + 15 + fileDesc*2 + 1] = LSEEK;
+    
+    
+    //Store this block back to disk. This is done to reflect changes made to this block on the disk.
+    store(1,db);
+
+    [physicalSP - 2] = 0;//Return from the system call with 0, indicating success.
+endif;
+
+ireturn;

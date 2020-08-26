@@ -1,0 +1,122 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2*(SP/512)]*512) + SP%512;
+
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];
+
+alias parentPID S2;
+parentPID = (PTBR - 1024)/8;
+
+alias parentPCB S3;
+parentPCB = READY_LIST + parentPID*32;
+
+alias childPID S4;
+alias childPTBR S5;
+alias childPCB S6;
+alias mem_index S7;
+alias pageCounter S8;
+alias counter S9;
+alias child_page_address S10;
+alias parent_page_address S11;
+alias childphysicalSP S12;
+alias fileCount S13;
+alias sw_index S14;
+
+counter=0;
+while([READY_LIST + counter*32 + 1] != 0) do
+    if(counter >= 32) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+    counter = counter + 1;
+endwhile;
+
+childPID = counter;
+childPCB = READY_LIST + 32*childPID;
+childPTBR = 1024 + childPID*8;
+
+counter=0;
+pageCounter=0;
+while(pageCounter < PTLR) do
+    if([PTBR + pageCounter*2] != -1) then
+	counter = counter + 1;
+    endif;
+    pageCounter = pageCounter + 1;
+endwhile;
+
+mem_index=29;
+while(counter > 0) do
+    if([MEM_LIST + mem_index] == 0) then
+	counter = counter - 1;
+    endif;
+    if(mem_index == 64) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+    mem_index = mem_index + 1;
+endwhile;
+
+
+mem_index = 29;
+pageCounter = 0;
+while(pageCounter < PTLR) do
+    if([PTBR + pageCounter*2] != -1) then
+	parent_page_address = [PTBR + pageCounter*2]*512;
+
+	while([MEM_LIST + mem_index] != 0) do
+	    mem_index = mem_index + 1;
+	endwhile;
+	[MEM_LIST + mem_index] = 1;
+	child_page_address = mem_index*512;
+
+	counter=0;
+	while(counter < 512) do
+	    [child_page_address + counter] = [parent_page_address + counter];
+	    counter = counter + 1;
+	endwhile;
+	[childPTBR + pageCounter*2] = mem_index;
+	[childPTBR + pageCounter*2 + 1] = "01";
+    else	
+	[childPTBR + pageCounter*2] = -1;
+	[childPTBR + pageCounter*2 + 1] = "00";
+    endif;
+        
+    pageCounter = pageCounter + 1;
+endwhile;
+
+counter=0;
+while(counter <8) do
+    sw_index = [parentPCB + 15 + counter*2]; 
+    if(sw_index != -1) then
+	fileCount = [FILE_TABLE + sw_index*2 + 1];
+	fileCount = fileCount + 1;
+	[FILE_TABLE + sw_index*2 + 1] = fileCount;
+
+	[childPCB + 15 + counter*2] = sw_index;
+	[childPCB + 15 + counter*2 + 1] = [parentPCB + 15 + counter*2 + 1];
+    endif;
+    counter = counter + 1;
+endwhile;
+
+[childPCB + 0] = childPID;
+[childPCB + 1] = 1;
+[childPCB + 2] = BP;
+[childPCB + 3] = SP - 1;
+[childPCB + 4] = [physicalSP];
+[childPCB + 5] = childPTBR;
+[childPCB + 6] = PTLR;
+[childPCB + 7] = R0;
+[childPCB + 8] = R1;
+[childPCB + 9] = R2;
+[childPCB + 10] = R3;
+[childPCB + 11] = R4;
+[childPCB + 12] = R5;
+[childPCB + 13] = R6;
+[childPCB + 14] = R7;
+
+[physicalSP - 2] = childPID;
+
+childphysicalSP = ([childPTBR + 2*(SP-1)/512]*512) + (SP-1)%512;
+[childphysicalSP - 1] = -2;
+
+ireturn;

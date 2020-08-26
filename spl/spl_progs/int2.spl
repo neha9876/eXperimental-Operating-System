@@ -1,0 +1,98 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2*(SP/512)]*512) + SP%512;
+
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];
+
+S2 = [physicalSP - 3];
+
+//open
+
+if(sysCallNo == 2) then
+    alias fileName S2;
+    alias fat_index S3;
+    alias sw_index S4;
+    alias pp_index S5;
+
+    //checking filename is exist in disk
+    fat_index=0;
+    while(fat_index < 64 && [FAT + fat_index*8] != fileName) do
+	fat_index = fat_index + 1;
+    endwhile;
+    if(fat_index >= 64) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+	//we are checking is there any fat index entry
+
+    sw_index = 0;//system wide open file system index
+    while(sw_index < 64 && [FILE_TABLE + sw_index*2] != fat_index) do// checking for fat index is found in swoft
+	sw_index = sw_index + 1;
+    endwhile;
+
+
+    if(sw_index >= 64) then
+	sw_index = 0;
+	while(sw_index < 64 && [FILE_TABLE + sw_index*2] != -1) do// checking free entry in swoft
+		sw_index = sw_index + 1;
+	endwhile;
+    endif;
+
+	if(sw_index >= 64) then
+		[physicalSP - 2] = -1;
+		ireturn;
+  	endif;
+
+
+//per process open file table
+    pp_index = 0;
+    while(pp_index < 8 && [READY_LIST + 15 + pp_index*2] != -1) do// checking for free entry ppoft we are not checking if an entry with swoft exists
+	pp_index = pp_index + 1;
+    endwhile;
+    if(pp_index >= 8) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+    [READY_LIST + 15 + pp_index*2] = sw_index;
+    [READY_LIST + 15 + pp_index*2 + 1] = 0;//lseek postion always set to zero
+    [FILE_TABLE + sw_index*2] = fat_index;
+    [FILE_TABLE + sw_index*2 + 1] = [FILE_TABLE + sw_index*2 + 1] + 1;// incrementing file count
+
+    [physicalSP - 2] = pp_index;
+endif;
+
+// close system call
+
+if(sysCallNo == 3) then
+    alias fileDesc S2;
+    alias sw_index S3;
+    alias fileCount S4;
+
+    if(fileDesc > 7 || fileDesc < 0) then// there is only eight entries in ppoft
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+    sw_index = [READY_LIST + 15 + fileDesc*2];//pcb ppoft starts wit 15
+    if(sw_index == -1) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+	fileCount = [FILE_TABLE + sw_index*2 + 1];
+	fileCount = fileCount - 1;
+    [FILE_TABLE + sw_index*2 + 1] = fileCount;
+    
+    if(fileCount == 0) then
+	[FILE_TABLE + sw_index*2] = -1;
+    endif;
+
+    [READY_LIST + 15 + fileDesc*2] = -1;//index of swoft invalid
+    [READY_LIST + 15 + fileDesc*2 + 1] = -1;//lseek invalid
+    
+    [physicalSP - 2] = 0;
+endif;
+
+ireturn;

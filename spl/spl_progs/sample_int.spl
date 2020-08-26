@@ -1,0 +1,122 @@
+
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];
+
+alias fileName S2;
+fileName = [physicalSP - 3];
+
+alias fat_index S3;
+
+if (sysCallNo == 1) then
+    alias df_index S4;
+    alias k S5;
+
+    df_index=0;
+    
+    while(fat_index < 64) do
+	if(fileName == [FAT + fat_index*8]) then
+	    [physicalSP - 2] = 0;
+	    ireturn;
+	endif;
+	fat_index=fat_index+1;
+    endwhile;
+    
+    df_index=24;
+    while(df_index < 448 && [DISK_LIST + df_index] != 0) do
+	df_index = df_index + 1;
+    endwhile;
+    if(df_index > 447) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+    fat_index = 0;
+    while(fat_index < 64 && [FAT + fat_index*8] != -1) do
+	fat_index = fat_index + 1;
+    endwhile;
+    if(fat_index >= 64) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+    [FAT + fat_index*8] = fileName;
+    [FAT + fat_index*8 + 1] = 0;
+    [FAT + fat_index*8 + 2] = df_index;
+
+    load(1,df_index);
+    k=0;
+    while(k < 512) do
+	[SCRATCHPAD + k] = -1;
+	k = k+1;
+    endwhile;
+
+    [DISK_LIST + df_index] = 1;
+
+    store(1,df_index);
+    store(5,19);
+    store(6,20);
+
+    [physicalSP - 2] = 0;
+
+endif;
+
+if(sysCallNo == 4) then
+    alias sw_index S4;
+
+    fat_index = 0;
+    while([FAT + fat_index*8] != fileName && fat_index < 64) do
+	fat_index = fat_index + 1;
+    endwhile;
+    if(fat_index >= 64) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+    
+    sw_index=0;
+    while([FILE_TABLE + sw_index*2] != fat_index && sw_index < 64) do
+	sw_index = sw_index + 1;
+    endwhile;
+    if([FILE_TABLE + sw_index*2] == fat_index) then
+	[physicalSP - 2] = -1;
+	ireturn;
+    endif;
+
+    alias db_index S4;
+    alias bb_index S5;
+    alias db S6;
+    alias bb S7;
+
+    bb = [FAT + fat_index*8 + 2];
+    load(1,bb);
+    bb_index=0;
+    db = [SCRATCHPAD + bb_index];
+    while(db != -1) do
+	[SCRATCHPAD + bb_index] = -1;
+	store(1,bb);
+	load(1,db);
+	db_index = 0;
+	while(db_index < 512) do
+	    [SCRATCHPAD + db_index] = "";
+	    db_index = db_index + 1;
+	endwhile;
+	store(1,db);
+	[DISK_LIST + db] = 0;
+	load(1,bb);
+	bb_index = bb_index + 1;
+	db = [SCRATCHPAD + bb_index];
+    endwhile;
+
+    [DISK_LIST + bb] = 0;
+    [FAT + fat_index*8] = -1;
+    [FAT + fat_index*8 + 1] = 0;
+    [FAT + fat_index*8 + 2] = -1;
+
+    store(5,19);
+    store(6,20);
+    
+    [physicalSP - 2] = 0;
+endif;
+ireturn; 
